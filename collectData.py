@@ -4,6 +4,12 @@ import os
 
 filePath = os.path.dirname(os.path.realpath(__file__))
 
+def assignTsBcuket(ts: float, allTimestamps: list[int]) -> int:
+    allTs = allTimestamps + [ts]
+    allTs.sort()
+    i = allTs.index(ts) + 1
+    return None if i > len(allTimestamps) else allTs[i]
+
 
 def collectFundingRate(period: int=900, path: str=filePath) -> pd.DataFrame:
 
@@ -55,7 +61,7 @@ def collectCandles(tMax: int, tMin: int, path: str=filePath) -> pd.DataFrame:
     response = requests.post(url, json=payload, headers=headers)
     df = pd.json_normalize(response.json()['result']['spot_feed_history']).sort_values(by=['timestamp_bucket']).reset_index(drop=True)
     if 'candles.xlsx' in os.listdir(path):
-        history = pd.read_excel('candles.xlsx')
+        history = pd.read_excel(f'{path}\\candles.xlsx')
         df = pd.concat([df, history], axis=0)
         df = df.drop_duplicates(subset=['timestamp_bucket']).reset_index(drop=True)
     df.to_excel(f'{path}\\candles.xlsx', index=False)
@@ -94,21 +100,34 @@ def collectTrades(path:str = filePath, pages: int = 7) -> pd.DataFrame:
     df = pd.concat(dfs, axis=0)
 
     if 'trades.xlsx' in os.listdir(path):
-        history = pd.read_excel('trades.xlsx')
+        history = pd.read_excel(f'{path}\\trades.xlsx')
         df = pd.concat([df, history], axis=0)
         df = df.drop_duplicates(subset=['trade_id']).reset_index(drop=True)
     df.to_excel(f'{path}\\trades.xlsx', index=False)
     return df
 
 
-def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFrame) -> pd.DataFrame:
+def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFrame, path: str = filePath) -> pd.DataFrame:
     '''This function will merge all the arguments on their respective timestamps.
     Returns a table called history.'''
-    pass
-
+    funding['normalizedTs'] = (funding.timestamp / 1000).astype(int)
+    fundingCandles = funding.merge(candles, how='left', left_on='normalizedTs', right_on='timestamp_bucket')
+    allTimestamps = fundingCandles.normalizedTs.to_list()
+    trades['ts'] = trades.timestamp / 1000
+    trades['tsBucket'] = trades.ts.apply(assignTsBcuket, args=(allTimestamps,))
+    history = fundingCandles.merge(trades, how='left', left_on='normalizedTs', right_on='tsBucket')
+    history['datetime'] = history.tsBucket.apply(lambda t: dt.fromtimestamp(t) if not pd.isna(t) else None)
+    # Too ambitious here!! forgot to aggregate the trades... will do next
+    if 'history.xlsx' in os.listdir(path):
+        df = pd.read_excel(f'{path}\\history.xlsx')
+        history = pd.concat([history, df], axis=0)
+        history.drop_duplicates(subset=['normalizedTs'])
+    history.to_excel(f'{path}\\history.xlsx')
+    return history
 
 if __name__ == '__main__':
     funding = collectFundingRate()
     tMax, tMin = max(funding.timestamp), min(funding.timestamp)
     candles = collectCandles(tMax, tMin)
     trades = collectTrades()
+    history = mergeTables(funding, candles, trades)
