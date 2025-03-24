@@ -126,6 +126,7 @@ def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFra
     return history
 
 if __name__ == '__main__':
+
     funding = collectFundingRate()
     tMax, tMin = max(funding.timestamp), min(funding.timestamp)
     candles = collectCandles(tMax, tMin)
