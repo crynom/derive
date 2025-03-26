@@ -4,7 +4,7 @@ import os
 
 filePath = os.path.dirname(os.path.realpath(__file__))
 
-def assignTsBcuket(ts: float, allTimestamps: list[int]) -> int:
+def assignTsBucket(ts: float, allTimestamps: list[int]) -> int:
     allTs = allTimestamps + [ts]
     allTs.sort()
     i = allTs.index(ts) + 1
@@ -107,6 +107,63 @@ def collectTrades(path:str = filePath, pages: int = 7) -> pd.DataFrame:
     return df
 
 
+def aggregateTrades(trades: pd.DataFrame) -> pd.DataFrame:
+    groups = trades.groupby('tsBucket')
+    pnlGroups = trades.groupby(['tsBucket', 'direction'])
+    trades['trade_price'] = trades.trade_price.astype(float)
+    trades['trade_amount'] = trades.trade_amount.astype(float)
+    trades['index_price'] = trades.index_price.astype(float)
+    trades['realized_pnl'] = trades.realized_pnl.astype(float)
+
+    aggTrades = groups.agg(
+        maxPrice = pd.NamedAgg(column='trade_price', aggfunc='max'),
+        minPrice = pd.NamedAgg(column='trade_price', aggfunc='min'),
+        avgIndexPrice = pd.NamedAgg(column='index_price', aggfunc='mean')
+    ).reset_index()
+
+    minVols = []
+    maxVols = []
+    lastPrices = []
+    lastVols = []
+    pnlSells = []
+    pnlBuys = []
+
+    for row in aggTrades.itertuples():
+        ts = row.tsBucket
+        group = groups.get_group(ts)
+        minTradeVol = sum(group[group.trade_price == min(group.trade_price)].trade_amount)
+        minVols.append(minTradeVol)
+        maxTradeVol = sum(group[group.trade_price == max(group.trade_price)].trade_amount)
+        maxVols.append(maxTradeVol)
+        lastPrice = group[group.timestamp == max(group.timestamp)].trade_price.mean()
+        lastPrices.append(lastPrice)
+        lastVol = sum(group[group.timestamp == max(group.timestamp)].trade_amount)
+        lastVols.append(lastVol)
+
+        try:
+            sells = pnlGroups.get_group((ts, 'sell'))
+            pnlSell = sum(sells.realized_pnl)
+            pnlSells.append(pnlSell)
+        except KeyError:
+            pnlSells.append(0)
+
+        try:
+            buys = pnlGroups.get_group((ts, 'buy'))
+            pnlBuy = sum(buys.realized_pnl)
+            pnlBuys.append(pnlBuy)
+        except KeyError:
+            pnlBuys.append(0)
+
+    aggTrades['minVol'] = minVols
+    aggTrades['maxVol'] = maxVols
+    aggTrades['lastPrice'] = lastPrices
+    aggTrades['lastVol'] = lastVols
+    aggTrades['pnlSell'] = pnlSells
+    aggTrades['pnlBuy'] = pnlBuys
+
+    return aggTrades
+
+
 def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFrame, path: str = filePath) -> pd.DataFrame:
     '''This function will merge all the arguments on their respective timestamps.
     Returns a table called history.'''
@@ -114,10 +171,11 @@ def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFra
     fundingCandles = funding.merge(candles, how='left', left_on='normalizedTs', right_on='timestamp_bucket')
     allTimestamps = fundingCandles.normalizedTs.to_list()
     trades['ts'] = trades.timestamp / 1000
-    trades['tsBucket'] = trades.ts.apply(assignTsBcuket, args=(allTimestamps,))
+    trades['tsBucket'] = trades.ts.apply(assignTsBucket, args=(allTimestamps,))
+    trades = aggregateTrades(trades)
     history = fundingCandles.merge(trades, how='left', left_on='normalizedTs', right_on='tsBucket')
     history['datetime'] = history.tsBucket.apply(lambda t: dt.fromtimestamp(t) if not pd.isna(t) else None)
-    # Too ambitious here!! forgot to aggregate the trades... will do next
+    # trades now aggregated, need to debug output
     if 'history.xlsx' in os.listdir(path):
         df = pd.read_excel(f'{path}\\history.xlsx')
         history = pd.concat([history, df], axis=0)
