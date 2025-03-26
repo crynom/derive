@@ -176,11 +176,13 @@ def mergeTables(funding: pd.DataFrame, candles: pd.DataFrame, trades: pd.DataFra
     history = fundingCandles.merge(trades, how='left', left_on='normalizedTs', right_on='tsBucket')
     history['datetime'] = history.tsBucket.apply(lambda t: dt.fromtimestamp(t) if not pd.isna(t) else None)
     # trades now aggregated, need to debug output
+    trades['datetime'] = trades.tsBucket.apply(lambda t: dt.fromtimestamp(t) if not pd.isna(t) else None)
+    trades.to_excel(f'{path}\\aggTrades.xlsx', index=False)
     if 'history.xlsx' in os.listdir(path):
         df = pd.read_excel(f'{path}\\history.xlsx')
         history = pd.concat([history, df], axis=0)
         history.drop_duplicates(subset=['normalizedTs'])
-    history.to_excel(f'{path}\\history.xlsx')
+    history.to_excel(f'{path}\\history.xlsx', index=False)
     return history
 
 if __name__ == '__main__':
