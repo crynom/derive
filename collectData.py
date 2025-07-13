@@ -4,7 +4,7 @@ import os
 
 filePath = os.path.dirname(os.path.realpath(__file__))
 
-def assignTsBucket(ts: float) -> int: return (ts // 900 + 1) * 900
+def assignTsBucket(ts: float) -> int: return int(ts // 900 + 1) * 900
 
 
 def collectFundingRate(period: int=900, path: str=filePath) -> pd.DataFrame:
